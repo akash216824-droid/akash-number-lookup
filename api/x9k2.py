@@ -8,8 +8,11 @@ import os
 # ---------- CONFIGURATION ----------
 REAL_API_URL = os.getenv("REAL_API_URL", "https://dark-info.site/test/api.php")
 REAL_API_KEY = os.getenv("REAL_API_KEY", "Demo")
-DEVELOPER = "𐙚 𓆩𝘼𝙠𝙖𝙨𝗵 𝙊𝙨𝙞𝙣𝙩𓆪𓂃🧑💻🎀⃤"
+DEVELOPER = "𐙚 𓆩𝘼𝙠𝙖𝙨𝗵 𝙊𝙨𝙞𝙣𝙩𓆪𓂂🧑‍💻🎀⃤"
 API_KEY = "DEMO"
+
+# 🔥 यह है नया गुप्त रास्ता (कोई guess नहीं कर सकता)
+SECRET_PATH = "/v4/lookup-x9k2"
 
 
 class handler(BaseHTTPRequestHandler):
@@ -24,14 +27,17 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
-        if parsed.path != "/api/search":
+        # 🔥 1. अगर URL गलत है (पुराना URL या कोई गलत अंदाज़ा) -> Invalid Key
+        if parsed.path != SECRET_PATH:
             self.wfile.write(json.dumps({"error": "Invalid Key"}, indent=4).encode())
             return
 
+        # 2. अगर Key गलत है -> Invalid Key
         if key != API_KEY:
             self.wfile.write(json.dumps({"error": "Invalid Key"}, indent=4).encode())
             return
 
+        # 3. अगर Query खाली है -> Invalid Key
         if not raw_num:
             self.wfile.write(json.dumps({"error": "Invalid Key"}, indent=4).encode())
             return
@@ -46,6 +52,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "No data found"}, indent=4).encode())
             return
 
+        # असली API को कॉल करें
         try:
             real_url = f"{REAL_API_URL}?key={REAL_API_KEY}&num={num}"
             req = urllib.request.Request(real_url, headers={"User-Agent": "Mozilla/5.0"})
@@ -58,157 +65,76 @@ class handler(BaseHTTPRequestHandler):
         result = self.parse_response(raw_text, num)
         self.wfile.write(json.dumps(result, indent=4, ensure_ascii=False).encode())
 
-    # ---------- Parse Response ----------
+    # ---------- PARSE RESPONSE ----------
     def parse_response(self, text, query):
-        # Clean unicode & HTML
         text = text.replace("\\u003c", "<").replace("\\u003e", ">")
         text = text.replace("\\u0026", "&")
         text = re.sub(r"<[^>]+>", " ", text)
-
-        # Remove Source sections
         text = re.split(r"-+Source-\d+-+", text)[0]
-        # Remove header
         text = re.sub(r"-+Main.*?-+", "", text, flags=re.DOTALL)
 
         lines = text.split("\n")
-        blocks = []
-        current_block = []
+        blocks, current_block = [], []
 
         for line in lines:
             line = line.strip()
-            if not line:
-                continue
-
-            # Match key: value (key may have emojis, spaces, symbols)
+            if not line: continue
             m = re.match(r"^(.+?)\s*:\s*(.+)$", line)
-            if not m:
-                continue
-
-            k = m.group(1).strip()
+            if not m: continue
+            k = re.sub(r"\s+", "", re.sub(r"[^\w\s]", "", m.group(1).strip(), flags=re.UNICODE).lower())
             v = m.group(2).strip()
+            if not v: continue
 
-            if not v:
-                continue
-
-            # Clean key: remove emojis and symbols, keep only letters, digits, spaces
-            clean_key = re.sub(r"[^\w\s]", "", k, flags=re.UNICODE)
-            clean_key = clean_key.strip().lower()
-            clean_key = re.sub(r"\s+", "", clean_key)
-
-            # Start new block if it's main phone
-            if clean_key in ("mobile", "phone", "telephone"):
+            if k in ("mobile", "phone", "telephone"):
                 if current_block:
                     blocks.append(current_block)
                     current_block = []
-                current_block.append((clean_key, v))
+                current_block.append((k, v))
             else:
-                current_block.append((clean_key, v))
+                current_block.append((k, v))
+        if current_block: blocks.append(current_block)
 
-        if current_block:
-            blocks.append(current_block)
+        if not blocks: return {"error": "No data found"}
 
-        if not blocks:
-            return {"error": "No data found"}
-
-        data = []
-        seen_phones = set()
-
+        data, seen = [], set()
         for block in blocks:
-            rec = {
-                "phones": [],
-                "addresses": [],
-                "name": None,
-                "father_name": None,
-                "aadhar": None,
-                "email": None,
-                "circle": None
-            }
-
+            rec = {"phones": [], "addresses": [], "name": None, "father_name": None, "aadhar": None, "email": None, "circle": None}
             for k, v in block:
-                if k.startswith("mobile") or k.startswith("phone") or k.startswith("telephone"):
-                    if v not in rec["phones"]:
-                        rec["phones"].append(v)
-                elif k.startswith("adres") or k.startswith("address"):
-                    rec["addresses"].append(v)
-                elif k in ("fullname", "name"):
-                    # NOTE: Real API में Full Name में father का नाम आ रहा है
-                    # Swap: FullName → father_name
-                    rec["father_name"] = v
-                elif "father" in k or k == "thenameofthefather":
-                    # NOTE: Real API में Father's Name में user का नाम आ रहा है
-                    # Swap: Father's Name → name
-                    rec["name"] = v
-                elif k.startswith("documentnumber") or k == "aadhar" or k == "documentnumber":
-                    if rec["aadhar"] is None:
-                        rec["aadhar"] = v
-                elif "passport" in k:
-                    if rec["aadhar"] is None:
-                        rec["aadhar"] = v
-                elif k == "email":
-                    rec["email"] = v
-                elif "region" in k or "network" in k or "circle" in k:
-                    rec["circle"] = v
+                if k.startswith(("mobile", "phone", "telephone")): 
+                    if v not in rec["phones"]: rec["phones"].append(v)
+                elif k.startswith(("adres", "address")): rec["addresses"].append(v)
+                elif k in ("fullname", "name"): rec["father_name"] = v
+                elif "father" in k or k == "thenameofthefather": rec["name"] = v
+                elif k.startswith("documentnumber") or k == "aadhar": rec["aadhar"] = rec["aadhar"] or v
+                elif "passport" in k: rec["aadhar"] = rec["aadhar"] or v
+                elif k == "email": rec["email"] = v
+                elif "region" in k or "network" in k or "circle" in k: rec["circle"] = v
 
-            if not rec["phones"]:
-                continue
+            if not rec["phones"]: continue
+            
+            uniq = rec["phones"]
+            addr = " | ".join(rec["addresses"]) if rec["addresses"] else "N/A"
 
-            unique_phones = rec["phones"]
-            address = " | ".join(rec["addresses"]) if rec["addresses"] else "N/A"
-            name = rec["name"]
-            father = rec["father_name"]
-            aadhar = rec["aadhar"]
-            email = rec["email"]
-            circle = rec["circle"]
-
-            for i, phone in enumerate(unique_phones):
+            for i, phone in enumerate(uniq):
                 digits = re.sub(r"\D", "", str(phone))
-                if not digits:
-                    continue
-                if digits.startswith("91") and len(digits) == 12:
-                    formatted_mobile = "+" + digits
-                elif len(digits) == 10:
-                    formatted_mobile = "+91" + digits
-                else:
-                    formatted_mobile = "+" + digits
+                if not digits: continue
+                fm = "+" + digits if (digits.startswith("91") and len(digits) == 12) else ("+91" + digits if len(digits) == 10 else "+" + digits)
+                if fm in seen: continue
+                seen.add(fm)
 
-                if formatted_mobile in seen_phones:
-                    continue
-                seen_phones.add(formatted_mobile)
+                alt = None
+                if len(uniq) > 1:
+                    nx = (i + 1) % len(uniq)
+                    ad = re.sub(r"\D", "", str(uniq[nx]))
+                    if ad: alt = "+" + ad if (ad.startswith("91") and len(ad) == 12) else ("+91" + ad if len(ad) == 10 else "+" + ad)
 
-                alternate = None
-                if len(unique_phones) > 1:
-                    next_idx = (i + 1) % len(unique_phones)
-                    alt_digits = re.sub(r"\D", "", str(unique_phones[next_idx]))
-                    if alt_digits:
-                        if alt_digits.startswith("91") and len(alt_digits) == 12:
-                            alternate = "+" + alt_digits
-                        elif len(alt_digits) == 10:
-                            alternate = "+91" + alt_digits
-                        else:
-                            alternate = "+" + alt_digits
+                data.append({
+                    "mobile": fm, "name": rec["name"] or "N/A", "father_name": rec["father_name"] or "N/A",
+                    "address": addr, "alternate": alt, "aadhar": rec["aadhar"] or "N/A",
+                    "email": rec["email"], "circle": rec["circle"] or "N/A"
+                })
 
-                record = {
-                    "mobile": formatted_mobile,
-                    "name": name if name else "N/A",
-                    "father_name": father if father else "N/A",
-                    "address": address,
-                    "alternate": alternate,
-                    "aadhar": aadhar if aadhar else "N/A",
-                    "email": email,
-                    "circle": circle if circle else "N/A"
-                }
-                data.append(record)
-
-        if not data:
-            return {"error": "No data found"}
-
-        return {
-            "status": "success",
-            "total_records": len(data),
-            "number": query,
-            "data": data,
-            "developer": DEVELOPER
-        }
+        return {"status": "success", "total_records": len(data), "number": query, "data": data, "developer": DEVELOPER} if data else {"error": "No data found"}
 
     def do_OPTIONS(self):
         self.send_response(200)

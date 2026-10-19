@@ -2,10 +2,6 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/v4/lookup-x9k2",
-      "destination": "/api/x9k2"
-    },
-    {
       "source": "/(.*)",
       "destination": "/api/x9k2"
     }
